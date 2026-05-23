@@ -96,7 +96,7 @@ To prevent the chat history from getting too long, you can clear it periodically
 history.clear()
 ```
 
-If you are using LangChain chains, LangChain makes it even easier to manage chat history. You can just do it like before, only this time we’ll be using Redis rather than a local variable:
+If you are using LangChain chains, you can manage chat history using Redis instead of a local variable. The prompts remain the same:
 
 ```python
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -109,44 +109,73 @@ prompt = ChatPromptTemplate.from_messages(
 )
 ```
 
-`MessagesPlaceholder` will be used to pass the chat history like before. Next, you need a function that, given the session ID, will create or return an instance of chat history for that session:
+There are two approaches to integrating Redis chat history:
+
+### Option 1: Using `RunnableWithMessageHistory` (Automated)
+
+This approach automatically saves and loads all messages through the chain:
 
 ```python
+from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_core.chat_history import BaseChatMessageHistory
 from langchain_redis import RedisChatMessageHistory
 
 def get_redis_history(session_id: str) -> BaseChatMessageHistory:
     return RedisChatMessageHistory(session_id, redis_url=REDIS_URL)
-```
 
-Then, combine your chain with the chat history using the `RunnableWithMessageHistory` class:
-
-```python
-from langchain_core.runnables.history import RunnableWithMessageHistory
 chain = prompt | llm
 chain_with_message_history = RunnableWithMessageHistory(
     chain, get_redis_history, input_messages_key="user_input", history_messages_key="conversation"
 )
-```
 
-Finally, invoke it:
-
-```python
 response = chain_with_message_history.invoke(
     {"user_input": "Hey. I'm from New York."},
     config={"configurable": {"session_id": "hyperskill_user"}},
 )
-print(response.content)
-# Hey! Nice to meet you—New York is ...
-
-response_from_history = chain_with_message_history.invoke(
-    {"user_input": "Where did I say I was from?"},
-    config={"configurable": {"session_id": "hyperskill_user"}},
-)
-print(response_from_history.content)
-# You said you're from New York. 
 ```
-> Using the function `get_redis_history()` is not the only way to manage chat history. You can just manually add messages to the chat history using `add_message()` and retrieve them using the `messages` property like before. However, using `RunnableWithMessageHistory` is a more intuitive way, especially when using chains.
+
+**Limitation**: This saves all messages that pass through the chain, including tool calls, intermediate AI messages, and tool results. This increases storage and token costs.
+
+### Option 2: Manual Management with `RedisChatMessageHistory` (Recommended for Tool-Based Applications)
+
+For applications using tools, manual management provides control over what gets persisted:
+
+```python
+from langchain_redis import RedisChatMessageHistory
+
+# Initialize Redis history with TTL
+redis_history = RedisChatMessageHistory(
+    session_id=session_id,
+    redis_url=REDIS_URL,
+    ttl=3600  # 1 hour
+)
+
+# Load conversation history from Redis
+conversation = list(redis_history.messages)
+
+# Add user input to in-memory conversation
+user_message = HumanMessage(user_input)
+conversation.append(user_message)
+
+# Run chains (tool calls happen in-memory)
+context_chain.invoke({"user_input": user_input, "conversation": conversation}, ...)
+response = review_chain.invoke({"user_id": user_id, "user_input": user_input, "conversation": conversation}, ...)
+
+# Save only user input and final response to Redis
+redis_history.add_message(user_message)
+redis_history.add_message(response)
+```
+
+This approach keeps conversation history clean (only user messages and final responses), reduces token usage, and provides explicit control over persistence. Tool calls and intermediate messages remain in memory for the current turn only.
+
+**Note**: When using manual management, update the `generate_context` function to accept `conversation` as a parameter:
+
+```python
+def generate_context(ai_message: AIMessage, conversation: list) -> dict:
+    """Process tool calls and add results to the conversation list"""
+    conversation.append(ai_message)
+    # ... rest of the function
+```
 
 Unfortunately, the chat history is bound to get too long over time. Fortunately, there are strategies you can use to ensure that this does not happen. For example, you can set a time to live (TTL) for Redis chat history:
 
@@ -178,11 +207,44 @@ Now, the chat history won’t get too long, potentially using up more tokens tha
 
 ### Development Steps
 
-So far, we’ve used a local variable to store chat history. In this stage, you explore a better way to do it using Redis. First, go ahead and run the appropriate Docker command to pull the image and run the database. Remember to map the container port `6379` for Redis to the host port `6380` or another port, because the default one is already allocated to Langfuse.
+Replace the in-memory conversation storage with Redis-based chat history management. Follow these steps:
 
-Previously, we stored the chat history in the `conversation` variable. Now, you will use an instance of `RedisChatMessageHistory` to manage chat history better. To prevent the chat history from getting too long, set the time to live, so that messages older than a certain time are automatically deleted.
+1. **Set up Redis**: Run the Docker command to start Redis on port 6380 (port 6379 is used by Langfuse):
+   ```bash
+   docker run --restart always --name hyper-redis -d -p 6380:6379 redis redis-server --save 60 1
+   ```
 
-Since we are using chains, you can connect the chain to the message history. This applies to both the context chain and the final response chain. For the context chain only, you can add a trimmer before invoking LLM bound with tools to remove older messages.
+2. **Add environment variable**: Set `REDIS_URL=redis://localhost:6380/0` in your `.env` file.
+
+3. **Update conversation management**:
+   - Remove the global `conversation = []` variable
+   - Initialize `RedisChatMessageHistory` with a TTL (e.g., 3600 seconds for 1 hour)
+   - At the start of each turn, load messages from Redis using `list(redis_history.messages)`
+   - Save only the user's `HumanMessage` and the final `AIMessage` to Redis
+   - Keep tool calls and intermediate messages in memory for the current turn only
+
+4. **Update `generate_context` function**: Change the signature to accept `conversation` as a parameter instead of using a global variable:
+   ```python
+   def generate_context(ai_message: AIMessage, conversation: list) -> dict:
+   ```
+
+5. **Add message trimming to context chain**: Insert a trimmer in the context chain pipeline to limit token usage:
+   ```python
+   from langchain_core.messages import trim_messages
+
+   trimmer = trim_messages(
+       strategy="last",
+       token_counter=llm,
+       max_tokens=500,
+       start_on="human",
+       end_on=("human", "tool"),
+       include_system=True,
+   )
+
+   context_chain = context_prompt | trimmer | llm_with_tools
+   ```
+
+The application should continue to function identically, but conversation history will now persist in Redis and automatically expire after the TTL period.
 
 ---
 

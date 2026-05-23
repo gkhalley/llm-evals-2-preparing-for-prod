@@ -55,25 +55,40 @@ prompt = ChatPromptTemplate.from_messages(
 )
 ```
 
-You can also create text prompts and retrieve them the same way. When using `MessagesPlaceholder`, here’s how you can retrieve your prompts:
+You can also create text prompts and retrieve them the same way. When using `MessagesPlaceholder`, here's how you can retrieve your prompts:
 
 ```python
 prompt = ChatPromptTemplate.from_messages(
    [
       hello_prompt.get_langchain_prompt()[0], # system message is indexed with 0
-      MessagesPlaceholder(variable_name="chat_history"), # for the chat history
+      MessagesPlaceholder("chat_history"), # for the chat history
       hello_prompt.get_langchain_prompt()[1], # user message is indexed with 1
    ]
 )
 ```
 
-Additionally, Langfuse allows you to version and tag your prompts depending on the iteration, environment, or use case for the prompt. By attaching the prompt to a trace’s metadata, you associate it with observations in that trace to collect metrics, such as cost, to better understand how the prompt performs.
+**Note**: Alternatively, you can create message placeholders directly in the Langfuse UI when creating your prompt (see [Langfuse Message Placeholders docs](https://langfuse.com/docs/prompt-management/features/message-placeholders)). This allows you to test prompts with conversation history in the Playground. For this project's starter code, you'll need to manually add the `MessagesPlaceholder` in your code as shown above.
 
-Here is how you can do that for the LangChain prompt we created above:
+**Important for this project**: The starter code uses `MessagesPlaceholder` for conversation history. When creating prompts in Langfuse as chat prompts, include only the system message. Then extract it and add the placeholder:
 
+```python
+# For chat prompts with conversation history
+context_lf_prompt = langfuse.get_prompt("context_system_prompt")
+context_prompt = ChatPromptTemplate.from_messages([
+    context_lf_prompt.get_langchain_prompt()[0],
+    MessagesPlaceholder("conversation"),
+])
+context_prompt.metadata = {"langfuse_prompt": context_lf_prompt}
+
+# For text prompts
+goodbye_lf_prompt = langfuse.get_prompt("goodbye_system_prompt")
+goodbye_prompt = PromptTemplate.from_template(
+    goodbye_lf_prompt.get_langchain_prompt()[0][1]
+)
+goodbye_prompt.metadata = {"langfuse_prompt": goodbye_lf_prompt}
 ```
-prompt.metadata={"langfuse_prompt": hello_prompt}
-```
+
+Additionally, Langfuse allows you to version and tag your prompts depending on the iteration, environment, or use case for the prompt. By attaching the prompt to a trace's metadata, you associate it with observations in that trace to collect metrics, such as cost, to better understand how the prompt performs.
 
 You should now see metrics associated with that prompt in the Langfuse UI under the 'Metrics' tab:
 
