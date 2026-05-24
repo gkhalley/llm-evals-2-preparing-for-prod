@@ -30,6 +30,38 @@ In this task, you will set up and use the [LiteLLM proxy](https://docs.litellm.a
 
 There are various ways we can deploy and use the LiteLLM proxy. For all methods, check out the [setup and deployment guides](https://docs.litellm.ai/docs/proxy/deploy). We recommend deploying via Docker Compose. First, you need to [clone the repository](https://github.com/BerriAI/litellm.git).
 
+#### Docker Image Version Pinning
+
+**IMPORTANT: Always pin a specific LiteLLM version in production.** Never use the `latest` tag, as it can introduce breaking changes or security vulnerabilities without warning.
+
+In the `docker-compose.yml` file, specify an exact version tag:
+
+```yaml
+services:
+  litellm:
+    image: ghcr.io/berriai/litellm:v1.85.0  # Pin to specific version
+    # NOT: ghcr.io/berriai/litellm:latest
+```
+
+**Why this matters:**
+- **Stability**: Ensures your deployment remains consistent across restarts
+- **Security**: In March 2026, LiteLLM versions 1.82.7 and 1.82.8 were compromised in a supply chain incident. Teams using `:latest` were automatically affected, while pinned versions remained safe
+- **Controlled updates**: You can test new versions in staging before promoting to production
+
+**Version naming (as of v1.84.0):**
+- LiteLLM now uses standard SemVer 2.0 tags like `v1.85.0`
+- The older `-stable` suffix (e.g., `v1.83.2-stable`) has been deprecated
+- All releases are signed with cosign for verification
+
+**Before updating:**
+1. Check the [release notes](https://docs.litellm.ai/release_notes) for breaking changes
+2. Verify the version isn't on the [security advisory list](https://docs.litellm.ai/blog/security-update-march-2026)
+3. Test in a non-production environment first
+
+For the latest stable version, visit the [LiteLLM releases page](https://github.com/BerriAI/litellm/releases).
+
+#### Configuration File Setup
+
 LiteLLM is configured via a `config.yaml` file. So, you need to create a new `config.yaml` file in the root directory of the project you just cloned, relative to the `docker-compose.yml` file. In that file, you’d add the appropriate configs for the models we have in the project (for example, the embeddings and chat model). Here is a [production-ready](https://docs.litellm.ai/docs/proxy/prod) template you can use for your `config.yaml`:
 
 ```yaml
