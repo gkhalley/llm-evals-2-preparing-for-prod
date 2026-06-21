@@ -6,7 +6,7 @@ import uuid
 
 import dotenv
 from langchain_community.docstore.document import Document
-from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage, AIMessage
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from langchain_core.prompts import MessagesPlaceholder, ChatPromptTemplate, PromptTemplate
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
@@ -51,15 +51,15 @@ langfuse = get_client()
 # ---------------------------
 
 @observe(name="embed_documents")
-def embed_documents(json_path: str):
+def embed_documents(json_path: str) -> QdrantVectorStore | list:
     """
     Load JSON data from the smartphones.json file and convert each entry to a Document.
     :param
         json_path (str): Path to the JSON file containing smartphone data.
 
     :returns
-        Qdrant vector store A Qdrant vector store built from the smartphone documents,
-                or an empty list if an error occurs.
+        A Qdrant vector store built from the smartphone documents,
+        or an empty list if an error occurs.
     """
     try:
         with open(json_path, "r") as f:
@@ -165,15 +165,13 @@ def smartphone_info_tool(model: str) -> str:
 # Tool Call Handling and Response Generation
 # ---------------------------
 @observe(name="generate_context")
-def generate_context(ai_message: AIMessage) -> dict:
+def generate_context(ai_message: AIMessage) -> None:
     """
-    Process tool calls from the language model and collect their responses as ToolMessage objects.
+    Process tool calls from the language model and append the AI message and
+    each tool's response as ToolMessage objects to the conversation history.
 
     :param
         ai_message (AIMessage): The language model's output message containing tool_calls.
-
-    :returns
-        A dictionary containing a list of ToolMessage objects under the key "tool_responses".
     """
     # construct the conversation history with the AI message containing tool calls
     conversation.append(ai_message)
