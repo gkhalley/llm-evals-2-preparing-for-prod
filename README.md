@@ -10,7 +10,6 @@
     - [Task Four — Managing API Keys and Budgets via LiteLLM Proxy.](./tasks/task_4.md)
 - [Deliverables](#deliverables)
 - [Useful Resources](#useful-resources)
-- [Contributing](#contributing)
 
 ## Introduction
 
@@ -140,24 +139,27 @@ By the end of this project, you will have transformed the functional chatbot pro
 Here are the main directories and files in this repo:
 
 ```markdown
-├── images/
-│   ├── litellm_dashboard.png
-│   ├── new_prompt.png
-│   ├── prompt_links.png
-│   ├── prompt_observations.png
-│   └── prompt_playgrounds.png
+├── assets/
+│   └── images/
+│       ├── litellm_dashboard.png
+│       ├── new_prompt.png
+│       ├── prompt_links.png
+│       ├── prompt_metrics.png
+│       ├── prompt_observations.png
+│       └── prompts_playground.png
+├── datasets/
+│   └── smartphones.json
 ├── tasks/
 │   ├── task_1.md
 │   ├── task_2.md
 │   ├── task_3.md
-│   ├── task_4.md
-│   └── task_5.md
+│   └── task_4.md
 ├── .env.sample
 ├── .gitignore
-├── CONTRIBUTING.md
 ├── main.py
+├── pyproject.toml
 ├── README.md
-└── requirements.txt
+└── uv.lock
 ```
 
 ## **Tasks**
@@ -181,6 +183,10 @@ Each task contains a collection of resources that will be helpful for you as you
 Each task contains a set of deliverables that bring you close to achieving the final goal. The final product is a production-ready LLM application.
 
 ---
+
+## **Contributing**
+
+All discussions and bug reports must be done via GitHub Issues, while code review is done via GitHub Pull Requests. For more information, see the [CONTRIBUTING.md](CONTRIBUTING.md) file.
 
 ## **The Flow**
 
