@@ -3,8 +3,14 @@ import json
 import os
 import sys
 import uuid
-
 import dotenv
+
+# Load environment variables from .env file
+dotenv.load_dotenv()
+openai_base_url = os.getenv("OPENAI_BASE_URL")
+os.environ["OPENAI_BASE_URL"] = openai_base_url
+os.environ["OPENAI_API_BASE"] = openai_base_url
+
 from langchain_community.docstore.document import Document
 from langchain_core.messages import HumanMessage, AIMessage, trim_messages
 from langchain_core.prompts import MessagesPlaceholder, ChatPromptTemplate, PromptTemplate
@@ -16,14 +22,19 @@ from qdrant_client.http.models import Distance, VectorParams
 from langfuse import observe, propagate_attributes, get_client
 from langfuse.langchain import CallbackHandler
 from langchain_redis import RedisChatMessageHistory
-
-# Load environment variables from .env file
-dotenv.load_dotenv()
+from nemoguardrails import RailsConfig
+from nemoguardrails.integrations.langchain.runnable_rails import RunnableRails
 
 # Generate unique session_id and user_id once
 session_id = f"session-{uuid.uuid4().hex[:8]}"
 users = ["James", "George", "Mike", "Sherlock"]
 user_id = users[uuid.uuid4().int % len(users)]
+
+# Load guardrails configuration
+config = RailsConfig.from_path("config/")
+
+# Create guardrails instance for input validation only
+input_rails = RunnableRails(config, input_key="user_input")
 
 # Redis Chat Message History
 redis_history = RedisChatMessageHistory(
@@ -35,14 +46,14 @@ redis_history = RedisChatMessageHistory(
 # Initialize the LLM with OpenAI API credentials (substitute for other models)
 llm = ChatOpenAI(
     model=os.getenv("OPENAI_MODEL"),
-    base_url=os.getenv("OPENAI_BASE_URL"),
+    base_url=openai_base_url,
     api_key=os.getenv("OPENAI_API_KEY")
 )
 
 # Initialize the embeddings model with OpenAI API credentials
 embeddings_model = OpenAIEmbeddings(
     model=os.getenv("OPENAI_EMBEDDINGS_MODEL"),
-    base_url=os.getenv("OPENAI_BASE_URL"),
+    base_url=openai_base_url,
     api_key=os.getenv("OPENAI_API_KEY"),
     show_progress_bar=True
 )
@@ -308,7 +319,7 @@ def main():
             conversation = list(redis_history.messages)
             conversation.append(user_message)
 
-            # Create a parent span for this user query to group all chain invocations
+            # Create a parent span for this user query to group validation and all chain invocations
             with langfuse.start_as_current_observation(
                 as_type="span",
                 name="user-query",
@@ -319,25 +330,34 @@ def main():
                     session_id=session_id,
                     user_id=user_id
                 ):
-                    # Context chain invocation
-                    ai_message = context_chain.invoke(
-                        {"user_input": user_input, "conversation": conversation},
-                        config={
-                            "run_name": "context",
-                            "callbacks": [langfuse_handler]
-                        }
+                    # Validate input with guardrails BEFORE invoking chains
+                    validation_result = input_rails.invoke(
+                        {"user_input": user_input},
+                        config={"run_name": "input-validation", "callbacks": [langfuse_handler]}
                     )
 
-                    # Process tool calls into the in-memory conversation for this turn
-                    generate_context(ai_message, conversation)
+                    # Check if input rail was triggered using metadata (not string matching)
+                    rail_triggered = isinstance(validation_result, AIMessage) and validation_result.response_metadata.get(
+                        "rails_triggered", False)
+
+                    if rail_triggered:
+                        # Rail triggered - skip further processing
+                        print(f"System: {validation_result.content}")
+                        span.update(output={"response": validation_result.content})
+                        continue  # Skip saving to Redis and proceed to next input
+
+                    # Rail not triggered - continue with normal processing
+                    ai_with_tools = context_chain.invoke(
+                        {"user_input": user_input, "conversation": conversation},
+                        config={"run_name": "context", "callbacks": [langfuse_handler]}
+                    )
+
+                    generate_context(ai_with_tools, conversation)
 
                     # Final response chain invocation
                     response = review_chain.invoke(
                         {"user_id": user_id, "user_input": user_input, "conversation": conversation},
-                        config={
-                            "run_name": "final-response",
-                            "callbacks": [langfuse_handler]
-                        }
+                        config={"run_name": "final-response", "callbacks": [langfuse_handler]}
                     )
 
                 # Set the output on the parent span
@@ -345,7 +365,7 @@ def main():
 
             print(f"System: {response.content}")
 
-            # Persist only the user's message and the final AIMessage to Redis
+            # Save clean messages to Redis only when rail not triggered
             redis_history.add_message(user_message)
             redis_history.add_message(response)
 
