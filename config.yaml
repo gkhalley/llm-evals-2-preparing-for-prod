@@ -1,0 +1,29 @@
+model_list:
+  - model_name: <model_name> # this is the model name your application will use for instance the chat model
+    litellm_params:
+      model: <actual_model_name> # the actual model that LiteLLM will call
+      api_base: <actual_base_url> # the actual base URL for your model provider
+      api_key: os.environ/<actual_api_key> # does os.getenv("actual_api_key") to get your actual API key
+      rpm: 10 # Rate limit for this deployment: in requests per minute (rpm)
+      tpm: 500 # token limit for this deployment: in tokens per minute (tpm)
+      num_retries: 3
+
+  - model_name: <another_model> # another model for you application for example the embeddings model
+    litellm_params:
+      model: <another_actual_model_name> # model name that LiteLLM will call
+      api_key: os.environ/<another_actual_api_key> # does os.getenv("another_actual_api_key") to get your actual API key
+      num_retries: 5
+      mode: embedding
+litellm_settings: # module level litellm settings - https://github.com/BerriAI/litellm/blob/main/litellm/__init__.py
+  drop_params: True
+  success_callback: ["langfuse"] # OPTIONAL - if you want to start sending LLM Logs to Langfuse. Make sure to set `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` in your env
+  max_budget: 5 # maximum budget for the models in cents
+  max_end_user_budget: 0.002 # maximum budget for end users. Applies if you pass in "user" when making calls
+  budget_duration: 1d # how long before the budget resets. Here we use 1 day but you can also use seconds, minutes, hours, days (1s, 1m, 1h, 1d) etc
+  request_timeout: 600 # raise Timeout error if call takes longer than 600 seconds. Default value is 6000seconds if not set
+  set_verbose: False # Switch off Debug Logging, ensure your logs do not have any debugging on
+  json_logs: true # debug logs in json format
+general_settings:
+  master_key: sk-deploying-llm-applications # the master key the app will use. must start with sk
+  salt_key: deploying-llm-apps # used to encrypt and decrypt your API key. Use https://1password.com/password-generator to generate a good one
+  database_url: "postgresql://llmproxy:dbpassword9090@db:5432/litellm"
